@@ -27,14 +27,14 @@ public class BattleManager : MonoBehaviour
     Text attackLabel_;
     Image fleeFrame_;
     Text fleeLabel_;
-    Image enemyMarker_;
+    GameObject enemyMarker_;
     Canvas battleStatusBarCanvas_;
     Canvas battleMovesCanvas_;
 
     List<GameObject> moves_;
     GameObject highlightedMove_;
 
-    static List<GameObject> enemies_;
+    static List<EnemyController> enemies_;
 
     // Status text
     public Text statusText_;
@@ -64,14 +64,15 @@ public class BattleManager : MonoBehaviour
         fleeFrame_ = GameObject.Find( "BattleMoves/Level0/Flee/Background/Frame" ).GetComponent<Image>();
         fleeLabel_ = GameObject.Find( "BattleMoves/Level0/Flee/Label" ).GetComponent<Text>();
 
-        enemyMarker_ = GameObject.Find( "Canvas/EnemyMarker" ).GetComponent<Image>();
+        enemyMarker_ = GameObject.Find( "EnemyMarker" );
+        enemyMarker_.SetActive( false );
 
         battleStatusBarCanvas_ = GameObject.Find( "BattleStatusBar" ).GetComponent<Canvas>();
         battleMovesCanvas_ = GameObject.Find( "BattleMoves" ).GetComponent<Canvas>();
 
         moves_ = new List<GameObject>();
 
-        enemies_ = new List<GameObject>();
+        enemies_ = new List<EnemyController>();
     }
 	
 	// Update is called once per frame
@@ -94,37 +95,35 @@ public class BattleManager : MonoBehaviour
             {
                 if( moveConfirmed_ )
                 {
-                    if( battleMove_ == "Flee" )
+                    if( highlightedMove_.name == "Flee" )
                     {
                         Debug.Log( "Player fled!" );
 
-                        foreach( GameObject enemy in enemies_ )
+                        foreach( EnemyController enemy in enemies_ )
                         {
-                            Destroy( enemy );
+                            Destroy( enemy.gameObject );
                         }
                         enemies_.Clear();
                         EndBattle();
                         yield return 0;
                     }
-                    else if( battleMove_ == "Attack" )
+                    else if( highlightedMove_.name == "Attack" )
                     {
                         int damage = Random.Range( 50, 70 );
                         Debug.Log( "Player attacked for " + damage + "HP!" );
                         statusText_.text = "Player attacked for " + damage + "HP!";
 
-                        enemyHealth_ -= damage;
+                        /*enemyHealth_ -= damage;*/
 
-                        if( enemyHealth_ <= 0 )
+                        if( !enemies_[ selectedTarget_ ].GetComponent<EnemyController>().TakeDamage( damage ) )//enemyHealth_ <= 0 )
                         {
-                            Destroy( enemies_[enemies_.Count - 1] );
-                            enemies_.RemoveAt( enemies_.Count - 1 );
-                            if( enemies_.Count > 0 )
-                            {
-                                enemyHealth_ = 100;
-                            }
-                            else
+                            Destroy( enemies_[ selectedTarget_ ].gameObject );
+                            enemies_.RemoveAt( selectedTarget_ );
+                            if( enemies_.Count == 0 )
                             {
                                 Debug.Log( "Player win!" );
+                                statusText_.text = "Player win!";
+                                yield return new WaitForSeconds( 2 );
                                 // Find enemy on map and destroy him
                                 GameObject enemy = GameObject.Find( "Intro/Enemies/" + mapEnemyName_ );
                                 areaInfo_.DestroyEnemy( enemy );
@@ -135,7 +134,10 @@ public class BattleManager : MonoBehaviour
                         }
                     }
 
-                    // Player just had turn. Now it is enemy's turn
+                    GetBattleMoves( 0 );
+                    HighlightMove();
+
+                    // Player just had his turn. Now it is enemy's turn
                     playersTurn_ = false;
                     moveConfirmed_ = false;
                 }
@@ -143,11 +145,12 @@ public class BattleManager : MonoBehaviour
                 {
 
                 }
-                yield return new WaitForSeconds( 2 );
+                yield return 0;
             }
             else
             {   
-                foreach( GameObject enemy in enemies_ )
+                yield return new WaitForSeconds( 2 );
+                foreach( EnemyController enemy in enemies_ )
                 {
                     statusText_.text = enemy.name + " is attacking!";
                     yield return new WaitForSeconds( 1 );
@@ -181,7 +184,7 @@ public class BattleManager : MonoBehaviour
         mapEnemyName_ = mapEnemyName;
         string enemyType = mapEnemyName_.Split( ' ' )[0];
         
-        // Get enemy battle count
+        // Generate the number of enemies in battle
         initialEnemyCount_ = Random.Range( 1, 4 );
 
         for( int i = 0; i < initialEnemyCount_; i++ )
@@ -193,7 +196,7 @@ public class BattleManager : MonoBehaviour
             enemy.name = enemyType + ( i + 1 ).ToString();
 
             // Add enemy to the enemies list
-            enemies_.Add( enemy );
+            enemies_.Add( enemy.GetComponent<EnemyController>() );
         }
 
         // TEMP
@@ -297,21 +300,27 @@ public class BattleManager : MonoBehaviour
         if( selectingEnemy_ )
         {
             selectingEnemy_ = false;
+            enemyMarker_.SetActive( false );
             moveConfirmed_ = true;
             return;
         }
 
         if( battleMoveLevel_ == 0 )
         {
+            if( highlightedMove_.name == "Flee" )
+            {
+                moveConfirmed_ = true;
+                return;
+            }
             // update moves list
-            GetBattleMoves( battleMoveLevel_++ );
-            selectedTarget_ = 0;
+            GetBattleMoves( battleMoveLevel_ + 1 );
             HighlightMove();
         }
         else
         {
             // selecting target state
             selectingEnemy_ = true;
+            enemyMarker_.SetActive( true );
 
             selectedTarget_ = 0;
             HighlightEnemy();
@@ -333,8 +342,7 @@ public class BattleManager : MonoBehaviour
         if( battleMoveLevel_ == 1 )
         {
             // update moves list
-            GetBattleMoves( battleMoveLevel_-- );
-            selectedTarget_ = 0;
+            GetBattleMoves( battleMoveLevel_ - 1 );
             HighlightMove();
         }
     }
@@ -355,32 +363,19 @@ public class BattleManager : MonoBehaviour
 
     void HighlightEnemy()
     {
-        enemyMarker_.GetComponent<Image>().enabled = true;
-
-        Vector2 markerPos = enemyMarker_.transform.position;
-
-        // Calculate the selected enemy marker position
-        float offset;
-        if( initialEnemyCount_ > 1 )
-        {
-            offset = 227.5f * ( initialEnemyCount_ - 1 );
-        }
-        else
-        {
-            offset = 0;
-        }
         // Move the enemy marker to selected enemy position
-        enemyMarker_.transform.position = new Vector2( Screen.width / 2 - offset + selectedTarget_ * 455.0f, markerPos.y );
+        enemyMarker_.transform.position = enemies_[selectedTarget_].transform.position;
     }
 
-    void GetBattleMoves( int lastLevel )
+    void GetBattleMoves( int nextLevel )
     {
         // Clear list of moves
         moves_.Clear();
 
         // Hide previous menu level moves
-        GameObject.Find( "BattleMoves/Level" + lastLevel ).transform.gameObject.GetComponent<Canvas>().enabled = false;
+        GameObject.Find( "BattleMoves/Level" + battleMoveLevel_ ).transform.gameObject.GetComponent<Canvas>().enabled = false;
 
+        battleMoveLevel_ = nextLevel;
         Transform level = GameObject.Find( "BattleMoves/Level" + battleMoveLevel_ ).transform;
         
         // Show actual menu level moves
@@ -391,5 +386,13 @@ public class BattleManager : MonoBehaviour
             // Add move
             moves_.Add( move.gameObject );
         }
+
+        // Set selected target to first item
+        selectedTarget_ = 0;
+    }
+
+    public bool IsPlayerOnTurn()
+    {
+        return playersTurn_;
     }
 }
