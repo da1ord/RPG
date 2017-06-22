@@ -39,8 +39,12 @@ public class PlayerController : MonoBehaviour
     {
         if( inBattle_ )
         {
-            // Process battle keyboard input
-            ProcessBattleKeyboard();
+            if( bm_.IsPlayerOnTurn() )
+            {
+                // Process battle keyboard input
+                ProcessBattleKeyboard();
+            }
+
             return;
         }
 
